@@ -4,9 +4,42 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"time"
 )
 
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		start := time.Now()
+
+		rec := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rec, req)
+
+		log.Printf("%s %s -> %d (%s)",
+			req.Method,
+			req.URL.Path,
+			rec.status,
+			time.Since(start),
+		)
+	})
+}
+
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	mux := http.NewServeMux()
 
 	// GET /health
@@ -34,6 +67,8 @@ func main() {
 		_ = json.NewEncoder(w).Encode(v)
 	})
 
-	log.Println("listening on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	handler := logging(mux)
+
+	log.Printf("listening on http://localhost:%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
